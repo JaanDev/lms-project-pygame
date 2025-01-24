@@ -3,7 +3,7 @@ import time
 import math
 import random
 
-SHIP_ACCEL = 20
+SHIP_ACCEL = 15
 SHIP_SLOWDOWN = 12
 SHIP_MAX_ACCEL = 3000
 SHIP_MAX_ACCEL_GROWTH = 0.5
@@ -24,21 +24,15 @@ class Ship(pygame.sprite.Sprite):
         self.surfaces = [pygame.transform.scale(pygame.image.load(f'ship{i}.png'), (68, 80)) for i in range(1, 5)]
         self.fire_surfaces = [pygame.transform.scale(pygame.image.load(f'shipfire{i}.png'), (68, 80)) for i in range(1, 5)]
         self.anim_time = 0
-        self.surf = self.surfaces[0]
-        self.firesurf = self.fire_surfaces[0]
+        self.anim_frametime = 1 / 10
+        self.cur_frame = 0
 
         self.pos = [400, 400]
         self.rot = 0
-        self.accel = 0
-        self.accel2 = 0
+        self.accel = [0, 0]
         self.hasfire = False
     
     def update(self, dt):
-        global SHIP_SLOWDOWN
-        self.anim_time += dt
-        self.surf = self.surfaces[int(self.anim_time // (1 / 10)) % 4]
-        self.firesurf = self.fire_surfaces[int(self.anim_time // (1 / 10)) % 4]
-
         mouse_pos = list(pygame.mouse.get_pos())
         mouse_pos[0] += camera_pos[0]
         mouse_pos[1] += camera_pos[1]
@@ -47,51 +41,53 @@ class Ship(pygame.sprite.Sprite):
         else:
             self.rot = -math.degrees(math.atan((mouse_pos[1] - self.pos[1]) / (mouse_pos[0] - self.pos[0]))) + (90 if mouse_pos[0] < self.pos[0] else -90)
 
-        if pygame.mouse.get_pressed(3)[0]:
-            self.accel3 = self.accel
-            self.accel += SHIP_ACCEL
+        mouse_pressed_now = pygame.mouse.get_pressed(3)[0]
+        self.hasfire = mouse_pressed_now
+        if mouse_pressed_now:
+            self.anim_frametime = 1 / 10
+            self.accel[0] += SHIP_ACCEL * math.sin(math.radians(self.rot)) * dt
+            self.accel[1] += SHIP_ACCEL * math.cos(math.radians(self.rot)) * dt
         else:
-            if self.hasfire:  # pressed on last frame but not now
-                self.accel = self.accel2
-                self.accel3 = self.accel
-                SHIP_SLOWDOWN = (self.accel ** 0.96) / 100
-            self.accel -= SHIP_SLOWDOWN
-        self.hasfire = pygame.mouse.get_pressed(3)[0]
+            self.anim_frametime = 1 / 5
+            self.accel[0] *= 0.97
+            self.accel[1] *= 0.97
+        if abs(self.accel[0]) < 0.001:
+            self.accel[0] = 0
+        if abs(self.accel[1]) < 0.001:
+            self.accel[1] = 0
 
-        if self.accel < 100:
-            self.accel = 100
-            self.accel3 = 0
-        accel2 = self.accel
-        if self.accel > SHIP_MAX_ACCEL and self.hasfire:
-            accel2 = ((self.accel / SHIP_MAX_ACCEL) ** SHIP_MAX_ACCEL_GROWTH) * SHIP_MAX_ACCEL
+        acx = abs(self.accel[0])
+        acy = abs(self.accel[1])
 
-        if self.hasfire:
-            accel2 = accel2 ** 0.9
-        elif self.accel3 != 0:
-            accel2 = (accel2 / self.accel3) ** 2 * self.accel3
+        if acx > 20:
+            acx = (acx / 20) ** 0.06 * 20
+        else:
+            acx **= 0.9
+        if acy > 20:
+            acy = (acy / 20) ** 0.06 * 20
+        else:
+            acy **= 0.9
+        
+        self.pos[0] -= acx * (-1 if self.accel[0] < 0 else 1)
+        self.pos[1] -= acy * (-1 if self.accel[1] < 0 else 1)
 
-        if accel2 > SHIP_REALLY_MAX_ACCEL:
-            accel2 = SHIP_REALLY_MAX_ACCEL
-
-        self.accel2 = accel2
-
-        self.pos[0] -= accel2 * math.sin(math.radians(self.rot)) * dt
-        self.pos[1] -= accel2 * math.cos(math.radians(self.rot)) * dt
+        self.anim_time += dt
+        if self.anim_time >= self.anim_frametime:
+            self.anim_time -= self.anim_frametime
+            self.cur_frame = (self.cur_frame + 1) % 4
     
     def draw(self):
-        rotsurf = pygame.transform.rotate(self.surf, self.rot)
-        # pygame.draw.circle(screen, 'green', self.pos, 5)
+        rotsurf = pygame.transform.rotate(self.surfaces[self.cur_frame], self.rot)
         if self.hasfire:
-            firerotsurf = pygame.transform.rotate(self.firesurf, self.rot)
+            firerotsurf = pygame.transform.rotate(self.fire_surfaces[self.cur_frame], self.rot)
             # firerotsurf.fill((255, 255, 255, 128), None, pygame.BLEND_RGBA_MULT)
             screen.blit(firerotsurf, (self.pos[0] - rotsurf.get_rect().w / 2 - camera_pos[0], self.pos[1] - rotsurf.get_rect().h / 2 - camera_pos[1]))
         screen.blit(rotsurf, (self.pos[0] - rotsurf.get_rect().w / 2 - camera_pos[0], self.pos[1] - rotsurf.get_rect().h / 2 - camera_pos[1]))
         
-        text_surf = my_font.render(f'{self.accel} {self.accel2}', False, (255, 255, 255))
+        text_surf = my_font.render(f'{self.accel}', False, (255, 255, 255))
         screen.blit(text_surf, (0, 0))
-        pygame.draw.rect(screen, 'white', (10, 20, 200 * self.accel2 / 5000, 30))
-        pygame.draw.rect(screen, 'red', (10, 20, 200, 30), 1)
-        # pygame.draw.rect(screen, 'red', (self.pos[0] + rotsurf.get_rect().x, self.pos[1] + rotsurf.get_rect().y, rotsurf.get_rect().w, rotsurf.get_rect().h), 1)
+        # pygame.draw.rect(screen, 'white', (10, 20, 200 * self.accel2 / 5000, 30))
+        # pygame.draw.rect(screen, 'red', (10, 20, 200, 30), 1)
 
 
 class StarChunk():
@@ -143,7 +139,7 @@ while running:
 
     for x in range(2):
         for y in range(2):
-            chunk = (int(((camera_pos[0] * 0.2 + SCREEN_W * x) ) // SCREEN_W), int((camera_pos[1] * 0.2 + SCREEN_H * y) // SCREEN_H))
+            chunk = (int(((camera_pos[0] * 0.2 + SCREEN_W * x)) // SCREEN_W), int((camera_pos[1] * 0.2 + SCREEN_H * y) // SCREEN_H))
             if chunk not in stars.keys():
                 # print(chunk)
                 stars[chunk] = StarChunk(chunk)
